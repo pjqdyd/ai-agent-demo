@@ -19,7 +19,7 @@
     </a>
     <img src="https://badgen.net/badge/language/antdx/cyan"/>
     <img src="https://badgen.net/badge/language/langchain/blue"/>
-    <img src="https://badgen.net/badge/package/pnpm/cyan"/>
+    <img src="https://badgen.net/badge/package/langgraph/cyan"/>
     <img src="https://badgen.net/badge/license/monorepo/green"/>
     <img src="https://badgen.net/badge/contributors/1/blue"/>
 </p>
@@ -29,15 +29,16 @@
 > 1. Ollama 本地部署模型
 > 2. WebChat 功能实现
 > 3. LangChain: Prompt、RAG、Tools 实现
-> 4. MCP功能实现：[MCP-TS-DEMO](https://github.com/pjqdyd/mcp-ts-demo)
-> 5. AI 全栈工程化
+> 4. LangGraph: 简单ReAct实现，循环调用
+> 5. MCP功能实现：[MCP-TS-DEMO](https://github.com/pjqdyd/mcp-ts-demo)
+> 6. AI 全栈工程化
 
 #### 技术选型：
  - 环境：Node18+、TypeScript
  - 构建工具：pnpm、monorepo、turbo、changeset
  - 前端框架：Umi、React18、AntD
  - 后端框架：Midway.js、Egg.js、TypeORM、MySql、Zod
- - Agent SDK: LangChain.JS
+ - Agent SDK: LangChain.JS、LangGraph.JS
  - WebChat组件: AntDesignX、X-SDK
 
 #### 项目目录:
@@ -65,7 +66,7 @@
 
  - 如果要启动langchain-ts-demo项目，请查看对应目录下的README.md文件
  - 前置依赖环境
-```
+```nomic-embed-text
    node18
    ollama run qwen3.5:2b
    ollama pull nomic-embed-text
