@@ -46,6 +46,9 @@ export class AgentService {
         },
         // 本地Ollama不校验API Key，langchain要求非空，占位即可
         apiKey: 'ollama',
+        // 关闭 qwen3.5 的思考模式：本地小模型思考耗时过长，关闭后响应从分钟级降到秒级
+        // 需要深度推理时可改为 low / medium / high，或删除该参数恢复默认思考
+        modelKwargs: { reasoning_effort: 'none' },
       });
       this.agent = createReactAgent({
         llm: model,

@@ -269,9 +269,9 @@ const Chat= () => {
                         ],
                         frequency_penalty: 0,
                         max_tokens: 1024,
-                        thinking: {
-                            type: deepThinking ? 'enabled' : 'disabled',
-                        },
+                        // Ollama 的 OpenAI 兼容端点只认 reasoning_effort 参数：
+                        // 开关关闭时明确禁用思考（qwen3.5 思考耗时过长）；开启时不传该字段恢复默认思考
+                        ...(deepThinking ? {} : { reasoning_effort: 'none' }),
                     });
                     setContent('');
                 }}
