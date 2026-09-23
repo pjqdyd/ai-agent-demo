@@ -63,7 +63,10 @@
  - 本地启动Ollama：例如`ollama run qwen3.5:0.8b`
  - 通过交互式CLI命令行访问
  - 通过配置web项目的BASE_URL: `http://localhost:11434/v1/chat/completions`接入访问
- - 进入web-chat-demo项目：运行`pnpm run dev`启动应用，访问页面/chat-sdk
+ - 进入web-chat-demo项目：运行`pnpm run dev`启动应用，
+   - 访问页面/chat-sdk：        直接对接的ollama        (端口11434)
+   - 访问页面/chat-agent:       对接的langchain-ts-demo (需要启动 6001)
+   - 访问页面/chat-agent-graph: 对接langgraph-ts-demo   (需要启动 6002)
 
  - 如果要启动langchain-ts-demo/langgraph-ts-demo项目，请查看对应目录下的README.md文件
  - 前置依赖环境
