@@ -29,7 +29,7 @@
 > 1. Ollama 本地部署模型
 > 2. WebChat 功能实现
 > 3. LangChain: Prompt、RAG、Tools 实现
-> 4. LangGraph: 简单ReAct实现，循环调用，图-节点-条件边架构
+> 4. LangGraph: ReAct实现，循环调用，图-节点-条件边架构
 > 5. MCP功能实现：[MCP-TS-DEMO](https://github.com/pjqdyd/mcp-ts-demo)
 > 6. AI 全栈工程化
 
