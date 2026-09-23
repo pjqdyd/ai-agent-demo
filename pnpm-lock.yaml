@@ -247,6 +247,55 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  apps/langgraph-ts-demo:
+    dependencies:
+      '@langchain/core':
+        specifier: 0.3.44
+        version: 0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4))
+      '@langchain/langgraph':
+        specifier: 0.2.62
+        version: 0.2.62(@langchain/core@0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod-to-json-schema@3.23.3(zod@3.24.4))
+      '@langchain/ollama':
+        specifier: 0.2.1
+        version: 0.2.1(@langchain/core@0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4)))
+      '@langchain/openai':
+        specifier: 0.3.17
+        version: 0.3.17(@langchain/core@0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4)))(encoding@0.1.13)(ws@8.21.3)
+      '@langchain/textsplitters':
+        specifier: 0.1.0
+        version: 0.1.0(@langchain/core@0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4)))
+      '@midwayjs/bootstrap':
+        specifier: ^3.20.0
+        version: 3.20.24
+      '@midwayjs/core':
+        specifier: ^3.20.0
+        version: 3.20.24
+      '@midwayjs/logger':
+        specifier: ^3.0.0
+        version: 3.4.2
+      '@midwayjs/web':
+        specifier: ^3.20.0
+        version: 3.20.24(supports-color@8.1.1)
+      langchain:
+        specifier: 0.3.27
+        version: 0.3.27(@langchain/core@0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4)))(@langchain/ollama@0.2.1(@langchain/core@0.3.44(openai@5.12.2(ws@8.21.3)(zod@3.24.4))))(axios@1.20.0(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1))(openai@5.12.2(ws@8.21.3)(zod@3.24.4))(typeorm@0.3.31(mysql2@3.24.4(@types/node@22.20.2))(supports-color@8.1.1))(ws@8.21.3)
+      zod:
+        specifier: 3.24.4
+        version: 3.24.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.2
+      cross-env:
+        specifier: ^7.0.3
+        version: 7.0.3
+      mwtsc:
+        specifier: ^1.10.0
+        version: 1.16.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   apps/web-chat-demo:
     dependencies:
       '@ant-design/x':

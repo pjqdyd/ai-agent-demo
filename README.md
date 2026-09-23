@@ -29,7 +29,7 @@
 > 1. Ollama 本地部署模型
 > 2. WebChat 功能实现
 > 3. LangChain: Prompt、RAG、Tools 实现
-> 4. LangGraph: 简单ReAct实现，循环调用
+> 4. LangGraph: 简单ReAct实现，循环调用，图-节点-条件边架构
 > 5. MCP功能实现：[MCP-TS-DEMO](https://github.com/pjqdyd/mcp-ts-demo)
 > 6. AI 全栈工程化
 
@@ -46,7 +46,8 @@
 ```
  ├─apps                 apps项目
     ├─web-chat-demo     webchat项目
-    └─langchain-ts-demo langchain agent项目     
+    ├─langchain-ts-demo langchain agent项目
+    └─langgraph-ts-demo langgraph agent项目     
  ├─packages             子包目录
     ├─types             ts类型定义
     └─utils             工具类   
@@ -64,7 +65,7 @@
  - 通过配置web项目的BASE_URL: `http://localhost:11434/v1/chat/completions`接入访问
  - 进入web-chat-demo项目：运行`pnpm run dev`启动应用，访问页面/chat-sdk
 
- - 如果要启动langchain-ts-demo项目，请查看对应目录下的README.md文件
+ - 如果要启动langchain-ts-demo/langgraph-ts-demo项目，请查看对应目录下的README.md文件
  - 前置依赖环境
 ```nomic-embed-text
    node18
@@ -96,5 +97,5 @@
 
 #### 总结
  
- TS AI Agent 相关技术、AI全栈工程化
+ TS AI Agent 相关技术、ReAct 推理+行动、AI全栈工程化
 
