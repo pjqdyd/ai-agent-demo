@@ -1,6 +1,6 @@
 # Project.md — 架构与执行原理详解
 
-本文档详细描述 `@pjqdyd/langgraph-ts-demo` 的整体架构，以及一次对话请求从 HTTP 接口进入，经过 **意图分类 → 分支路由 → RAG 检索 / ReAct 工具循环 → 回答生成** 的完整执行过程与原理。区别于 `langchain-ts-demo` 使用 `createReactAgent` 预置图，本项目用 `StateGraph` 手工编排，完整展示 langgraph 的**分支、循环、多步执行与错误兜底**能力。
+本文档详细描述 `@pjqdyd/langgraph-ts-demo` 的整体架构，以及一次对话请求从 HTTP 接口进入，经过 **意图分类 → 分支路由 → RAG 检索 / ReAct 工具循环 → 回答生成** 的完整执行过程与原理，并详解 **中断介入（客户端工具 human-in-the-loop）** 机制。区别于 `langchain-ts-demo` 使用 `createReactAgent` 预置图，本项目用 `StateGraph` 手工编排，完整展示 langgraph 的**分支、循环、多步执行、错误兜底与中断恢复**能力。
 
 ## 1. 整体架构
 
@@ -19,7 +19,8 @@
                           │   │                └─ tools ─────▶ agent ⇄ tools      │
                           │   │  错误路由：error → retry（回出错节点）/ errorHandler │
                           │   ├─ checkpointer: MemorySaver（按 thread_id 隔离）    │
-                          │   ├─ tools: calculator                                │
+                          │   ├─ tools: calculator（服务端）                       │
+                          │   │        + clientTools（interrupt 交前端执行）       │
                           │   │        │                                          │
                           │   │        ▼                                          │
                           │   │  RagService                                       │
@@ -37,7 +38,7 @@
 | 编排层 | `agent/graph.service.ts` | StateGraph 构建、节点实现、条件路由、流式事件产出 |
 | 状态层 | `agent/state.ts` | Graph 全局状态定义（Annotation.Root + reducer） |
 | 提示词层 | `agent/prompts.ts` | 各节点系统提示词集中管理 + 错误兜底模板 |
-| 工具层 | `agent/tools/*` | 以 zod schema 声明的可调用工具（calculator） |
+| 工具层 | `agent/tools/*` | 服务端工具（calculator，节点内执行）+ 客户端工具（client-tools，仅声明 zod schema 供模型决策，执行在浏览器端） |
 | 知识层 | `agent/rag/*` | 文档分割、向量化、相似度检索（MemoryVectorStore） |
 | 配置层 | `config/*` | 端口、Ollama 模型等通用配置 |
 
@@ -46,7 +47,7 @@
 以 `POST /api/graph/chat/stream {"content": "1 + 2 * 3 等于多少"}` 为例：
 
 ```
-1. Controller 校验 content 非空
+1. Controller 校验 content / resume 至少一项有效（对话或恢复模式）
    └─ 无 sessionId → 生成（Date.now()）；即 checkpointer 的 thread_id
 2. 设置 SSE 响应头（Content-Type / no-cache / no-transform / X-Accel-Buffering）
 3. GraphService.chatStream()
@@ -62,7 +63,9 @@
    │    ├─ ② 条件边按 intent 分支：
    │    │      tools → agent；knowledge → retrieve → respond；chat → respond
    │    ├─ ③ agent（ReAct 推理）：返回 tool_calls → step 事件 + 进入 tools 节点
-   │    │      tools：执行 calculator，结果以 ToolMessage 回填 → 回到 agent（循环）
+   │    │      tools：服务端工具（calculator）本地执行；客户端工具（getPageUrl 等）
+   │    │      调用 interrupt() 暂停图执行 → SSE 下发 interrupt 事件交前端执行，
+   │    │      前端 resume 回传结果后图从断点续跑 → 结果以 ToolMessage 回填回到 agent
    │    │      agent 无 tool_calls → 结束，最终 AIMessage 即回答
    │    └─ ④ 各节点产出的 AI 文本 token 以 chunk 事件流式下发
    └─ 流结束：thinkStripper.flush() 冲刷缓冲 → send done（或 error）事件
@@ -130,7 +133,7 @@ workflow.addConditionalEdges('classify', routeAfterClassify, [
 
 ```ts
 // agent/graph.service.ts（节选）
-const toolModel = baseModel.bindTools([calculatorTool]);
+const toolModel = baseModel.bindTools([calculatorTool, ...clientTools]);
 
 // agent 节点：有 tool_calls 则原样入状态，否则视为最终回答
 const agentNode = async (state: GraphStateType) => {
@@ -148,7 +151,7 @@ const agentNode = async (state: GraphStateType) => {
 return lastMessage.tool_calls?.length ? 'tools' : END;
 ```
 
-`tools` 节点逐个执行工具调用，结果包装为 `ToolMessage`（携带 `tool_call_id`）追加进消息序列，回到 `agent` 继续推理——模型每轮都能看到自己上一轮的工具调用与观测结果。
+`tools` 节点将工具调用分为两类执行：**服务端工具**（calculator）节点内直接执行，结果包装为 `ToolMessage`（携带 `tool_call_id`）追加进消息序列；**客户端工具**（getPageUrl / getUserAgent）聚合后通过 `interrupt()` 暂停图执行，交前端执行后回传（详见 3.10）。工具结果回到 `agent` 继续推理——模型每轮都能看到自己上一轮的工具调用与观测结果。
 
 ### 3.4 错误处理路由（错误兜底能力）
 
@@ -217,7 +220,7 @@ const stream = await graph.stream(
 );
 ```
 
-原理：checkpointer 在每个节点（super-step）执行后保存状态快照，同 `thread_id` 再次调用时自动恢复——因此多轮上下文、断点续跑、human-in-the-loop 都是同一机制的三个应用场景，业务代码零改动。
+原理：checkpointer 在每个节点（super-step）执行后保存状态快照，同 `thread_id` 再次调用时自动恢复——因此多轮上下文、断点续跑、human-in-the-loop 都是同一机制的三个应用场景，业务代码零改动。本项目已落地 human-in-the-loop 的进阶用法：节点级 `interrupt()`（可携带调用明细下发给前端）配合 `Command({ resume })` 续跑，见 3.10。
 
 ### 3.6 RAG（检索增强生成）
 
@@ -272,7 +275,11 @@ Controller 层封装为 SSE 事件流（协议与 antdx `XRequest` 对齐）：
 this.ctx.set('Content-Type', 'text/event-stream; charset=utf-8');
 this.ctx.set('Cache-Control', 'no-cache, no-transform');  // no-transform：禁中间层转换
 this.ctx.set('X-Accel-Buffering', 'no');                  // 禁用代理缓冲
-for await (const event of this.graphService.chatStream(sessionId, content)) {
+// 恢复模式走 resumeChatStream（同一 thread_id 从断点续跑），否则新开对话
+const eventIterable = resume
+  ? this.graphService.resumeChatStream(sessionId, resume.results)
+  : this.graphService.chatStream(sessionId, content!);
+for await (const event of eventIterable) {
   send(event);   // event: message\ndata: {...}\n\n
 }
 ```
@@ -281,6 +288,7 @@ for await (const event of this.graphService.chatStream(sessionId, content)) {
 
 - `no-transform` 是关键：umi dev server 的 compression 中间件检测到该头会跳过 gzip/br 压缩，否则 SSE 小 chunk 积压在 zlib 缓冲区导致无流式效果
 - 多 streamMode 下 `messages` 的 payload 形状不稳定：可能是裸 `AIMessageChunk`，也可能是 `[chunk, metadata]` 元组，必须用 `Array.isArray(payload) ? payload[0] : payload` 兼容
+- `updates` 流中以 `__interrupt__`（双下划线）为键的条目不是节点执行，而是图暂停事件（客户端工具待执行），识别后转换为 SSE `interrupt` 事件（见 3.10）
 - `errorHandler` 的兜底文案不经过 LLM（无 token 流），需在 `updates` 分支中检测到该节点时手动下发 `chunk` 事件
 
 ### 3.8 思考内容剥离（qwen3 系列）
@@ -319,6 +327,86 @@ private createModel(): ChatOpenAI {
 ```
 
 注意：RAG 的向量化模型仍用 `@langchain/ollama` 的 `OllamaEmbeddings`（走 Ollama 原生 API，非 `/v1` 端点）。
+
+### 3.10 中断介入（客户端工具 / human-in-the-loop）
+
+浏览器侧能力（读取当前页面 URL、userAgent 等）无法在后端执行，本项目以**客户端工具**实现：后端仅向模型声明 zod schema 供决策，真正的执行发生在浏览器端。
+
+```ts
+// agent/tools/client-tools.ts（节选）
+export const getPageUrlTool = tool(
+  async () => '',   // 执行体不会在后端运行，结果始终由前端回传
+  {
+    name: 'getPageUrl',
+    description: '获取用户当前浏览的页面 URL（浏览器环境信息）',
+    schema: z.object({}),
+  }
+);
+
+// 客户端工具名白名单：tools 节点据此区分"后端执行"与"interrupt 交前端执行"
+export const CLIENT_TOOL_NAMES = new Set(clientTools.map(clientTool => clientTool.name));
+```
+
+客户端工具与 calculator 一并 `bindTools` 给 agent 节点的工具决策模型，对模型而言它们没有区别；差异发生在 `tools` 节点。完整链路分四步：
+
+```
+① agent 产出客户端工具调用 → tools 节点用 CLIENT_TOOL_NAMES 过滤出 clientToolCalls
+② interrupt({ type, toolCalls }) 暂停图执行：状态已存入 checkpointer，
+   SSE 下发 interrupt 事件（携带工具调用明细），前端渲染确认卡片并执行工具
+③ 前端复用 POST /api/graph/chat/stream，携带 resume: { results }
+   （与 interrupt 时 toolCalls 顺序对齐的执行结果数组）
+④ graph.stream(new Command({ resume: results })) 从断点续跑：
+   interrupt 调用点直接返回 results（按调用顺序），后续逻辑与普通执行完全一致
+```
+
+```ts
+// agent/graph.service.ts（节选）：tools 节点内的中断点
+const clientToolCalls = toolCalls.filter(toolCall =>
+  CLIENT_TOOL_NAMES.has(toolCall.name)
+);
+if (clientToolCalls.length) {
+  // 中断点：图在此暂停，状态已存入 checkpointer；
+  // 恢复后重放到此处时直接返回前端回传的结果数组（与调用顺序对齐）
+  clientResults = interrupt({ type: 'client_tool_call', toolCalls: clientToolCalls });
+}
+const serverToolCalls = toolCalls.filter(
+  toolCall => !CLIENT_TOOL_NAMES.has(toolCall.name)
+);
+```
+
+三个关键实现细节：
+
+- **`interrupt()` 通过抛出 `GraphInterrupt` 异常实现图暂停**。`tools` 节点的 try/catch 必须将其重新抛出，否则暂停会被误捕获为节点错误，走进重试/告警兜底分支：
+
+```ts
+// agent/graph.service.ts（节选）
+} catch (error) {
+  // interrupt 依赖 GraphInterrupt 异常实现图暂停，须放行给 LangGraph 运行时
+  if (error instanceof GraphInterrupt) {
+    throw error;
+  }
+  return buildNodeError('tools', error);
+}
+```
+
+- **服务端工具置于 interrupt 之后执行**。恢复续跑时节点代码会从头重放，而 `interrupt()` 在重放中直接返回缓存结果（不重新执行）——calculator 放在 interrupt 后面保证整个恢复过程中只执行一次，避免重复计算副作用。
+
+- **updates 流的暂停事件以 `__interrupt__` 为键**（双下划线，与 Python 端一致），不是节点名。消费循环中识别该键后提取待执行工具明细，转换为 SSE `interrupt` 事件：
+
+```ts
+// agent/graph.service.ts（节选）
+if (nodeName === '__interrupt__') {
+  const pendingToolCalls = (
+    delta as Array<{ value?: { toolCalls?: ClientToolCall[] } }>
+  ).flatMap(interruptItem => interruptItem.value?.toolCalls ?? []);
+  if (pendingToolCalls.length) {
+    yield { type: 'interrupt', threadId, toolCalls: pendingToolCalls };
+  }
+  continue;
+}
+```
+
+原理：节点级 `interrupt()` 相比编译期 `interruptBefore` 的优势在于**可携带上下文**（本次下发的是工具调用明细数组）且暂停粒度到节点内部任意位置；恢复值（`Command({ resume })`）在重放时从 checkpointer 的中断记录中取回，保证节点函数在"暂停前后"行为确定——这是"状态恢复"而非"状态重算"的思路，与 checkpointer 快照机制一脉相承。
 
 ## 4. Graph 可视化
 
@@ -361,9 +449,14 @@ Bootstrap.run();
 | `withStructuredOutput` 做意图分类 | 结构化输出约束为 zod 枚举，比自由文本 + 正则解析可靠；分类结果直接作为图分支依据 |
 | 错误写入 state 而非抛出 | 异常即状态，图不中断，由条件边统一路由到重试/告警，前端始终收到完整 SSE 事件序列 |
 | `errorHandler` 不调用 LLM | 兜底文案用模板生成，避免故障时二次失败 |
-| 开发态 `MemorySaver` | 零依赖实现多轮对话与断点演示；生产替换 PostgresSaver 即获得跨进程持久化与 human-in-the-loop，业务代码零改动 |
+| 开发态 `MemorySaver` | 零依赖实现多轮对话、断点演示与 interrupt 中断介入；生产替换 PostgresSaver 后状态跨进程持久化，业务代码零改动 |
 | 无 MySQL / typeorm | 会话状态由 checkpointer 托管，无需自行维护消息表——这是与 langchain-ts-demo 架构上的核心差异 |
 | SSE 增加 `no-transform` 头 | umi dev server 的 compression 中间件会缓冲 SSE 小 chunk，实测加该头后其跳过压缩，流式效果恢复 |
 | 多 streamMode payload 兼容 | @langchain/langgraph 0.2.62 多模式下 `messages` 可能是裸 chunk 或 `[chunk, metadata]` 元组，解析时需 `Array.isArray` 判断 |
 | Graph 惰性构建（首次请求创建） | 应用启动不依赖 Ollama 在线，避免启动顺序耦合 |
 | `drawMermaid` 导出图结构 | 图拓扑复杂（7 节点 6 组条件边），启动时自动打印 mermaid 文本便于文档与调试 |
+| 节点级 `interrupt()` 而非编译期 `interruptBefore` | interrupt 可携带调用明细（toolCalls）下发给前端，暂停粒度到节点内部任意位置；`Command({ resume })` 的恢复值在重放时从缓存取回 |
+| 服务端工具置于 interrupt 之后执行 | 恢复续跑会从头重放节点代码，interrupt 重放时直接返回缓存结果，calculator 因此只执行一次，避免重复副作用 |
+| try/catch 中放行 `GraphInterrupt` | interrupt 以异常实现图暂停，被节点 catch 吞掉会误入重试/告警分支 |
+| 客户端工具 schema-only 声明 | 后端只向模型声明 zod schema 供决策，执行发生在浏览器端，天然支持页面环境等前端专属能力 |
+| classify 兜底 `?? 'chat'` | 小模型偶发不触发结构化输出（返回 undefined），兜底走直接回答分支而非报错中断 |
