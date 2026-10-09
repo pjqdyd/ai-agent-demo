@@ -4,20 +4,23 @@
 
 /**
  * classify 节点：意图分类提示词（配合 withStructuredOutput 输出枚举）
+ * tools 枚举语义为"需要调用工具"：涵盖计算器与客户端工具（页面环境信息），
+ * 保证这类问题进入 agent 分支而非 respond 直接回答
  */
 export const CLASSIFY_SYSTEM_PROMPT = `你是意图分类器，将用户最新输入分类为以下三类之一：
-- chat：日常闲聊、问候、与知识库和计算无关的问题
+- chat：日常闲聊、问候，与工具调用和知识库无关的问题
 - knowledge：涉及公司制度、产品知识等内部信息的问题
-- compute：需要数学计算才能回答的问题`;
+- tools：需要调用工具才能回答的问题，如数学计算、获取当前页面 URL、浏览器 userAgent 等环境信息`;
 
 /**
  * agent 节点：工具调用决策提示词（ReAct 循环的推理节点）
- * 提示词中约定工具的使用时机，引导模型按需调用 calculator
+ * 提示词中约定工具的使用时机，引导模型按需调用 calculator / 客户端工具
  */
-export const AGENT_SYSTEM_PROMPT = `你是 AI-Agent-Demo 的计算助手，请遵守以下规则：
+export const AGENT_SYSTEM_PROMPT = `你是 AI-Agent-Demo 的助手，请遵守以下规则：
 1. 使用中文思考与回答，语气友好。
 2. 遇到数学计算时，必须使用 calculator 工具计算，不要自己心算。
-3. 工具结果返回后，基于结果组织最终中文回答。`;
+3. 需要当前页面 URL 或浏览器 userAgent 时，必须调用 getPageUrl / getUserAgent 工具获取，不要编造。
+4. 工具结果返回后，基于结果组织最终中文回答。`;
 
 /**
  * respond 节点：最终回答生成提示词（chat / knowledge 分支的统一出口）

@@ -17,15 +17,26 @@ export class ChatController {
   graphService: GraphService;
 
   /**
-   * 流式问答：SSE 输出节点执行进度（step）与 AI 文本增量（chunk）
+   * 流式问答（复用端点，按请求参数区分两种模式）：
+   * - 对话模式：body.content → 新开一轮 Graph 执行
+   * - 恢复模式：body.resume → 客户端工具结果回传后从 interrupt 断点续跑
+   * SSE 输出节点执行进度（step）、AI 文本增量（chunk）、
+   * 客户端工具待执行（interrupt）等事件
    * sessionId 即 langgraph checkpointer 的 thread_id：
    * 首次对话由后端生成（时间戳），后续请求携带同一值即可延续多轮上下文
    */
   @Post('/chat/stream')
-  async chatStream(@Body() body: { sessionId?: number; content: string }) {
-    const { content } = body;
-    if (!content?.trim()) {
-      throw new httpError.BadRequestError('content 不能为空');
+  async chatStream(
+    @Body()
+    body: {
+      sessionId?: number;
+      content?: string;
+      resume?: { results: string[] };
+    }
+  ) {
+    const { content, resume } = body;
+    if (!content?.trim() && !resume?.results?.length) {
+      throw new httpError.BadRequestError('content 与 resume 不能同时为空');
     }
     const sessionId = body.sessionId ?? Date.now();
 
@@ -45,10 +56,11 @@ export class ChatController {
     };
 
     try {
-      for await (const event of this.graphService.chatStream(
-        sessionId,
-        content
-      )) {
+      // 恢复模式走 resumeChatStream（同一 thread_id 从断点续跑），否则新开对话
+      const eventIterable = resume
+        ? this.graphService.resumeChatStream(sessionId, resume.results)
+        : this.graphService.chatStream(sessionId, content!);
+      for await (const event of eventIterable) {
         send(event);
       }
       send({ type: 'done', threadId: sessionId });

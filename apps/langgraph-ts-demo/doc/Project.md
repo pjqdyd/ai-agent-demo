@@ -16,7 +16,7 @@
                           │   │    START ──▶ classify                             │
                           │   │                ├─ chat ──────▶ respond ──▶ END    │
                           │   │                ├─ knowledge ─▶ retrieve ─▶ respond│
-                          │   │                └─ compute ───▶ agent ⇄ tools      │
+                          │   │                └─ tools ─────▶ agent ⇄ tools      │
                           │   │  错误路由：error → retry（回出错节点）/ errorHandler │
                           │   ├─ checkpointer: MemorySaver（按 thread_id 隔离）    │
                           │   ├─ tools: calculator                                │
@@ -57,10 +57,10 @@
    │  )
    │    │
    │    │  Graph 执行（langgraph 驱动）：
-   │    ├─ ① classify：LLM 结构化输出意图分类（chat / knowledge / compute）
-   │    │      → SSE 下发 step 事件 { node:'classify', label:'意图分类', detail:'意图：compute' }
+   │    ├─ ① classify：LLM 结构化输出意图分类（chat / knowledge / tools）
+   │    │      → SSE 下发 step 事件 { node:'classify', label:'意图分类', detail:'意图：tools' }
    │    ├─ ② 条件边按 intent 分支：
-   │    │      compute → agent；knowledge → retrieve → respond；chat → respond
+   │    │      tools → agent；knowledge → retrieve → respond；chat → respond
    │    ├─ ③ agent（ReAct 推理）：返回 tool_calls → step 事件 + 进入 tools 节点
    │    │      tools：执行 calculator，结果以 ToolMessage 回填 → 回到 agent（循环）
    │    │      agent 无 tool_calls → 结束，最终 AIMessage 即回答
@@ -107,7 +107,7 @@ export const GraphState = Annotation.Root({
 // agent/graph.service.ts（节选）
 const classifyModel = baseModel.withStructuredOutput(
   z.object({
-    intent: z.enum(['chat', 'knowledge', 'compute']).describe('用户意图分类结果'),
+    intent: z.enum(['chat', 'knowledge', 'tools']).describe('用户意图分类结果'),
   })
 );
 
@@ -115,7 +115,7 @@ const classifyModel = baseModel.withStructuredOutput(
 const intentRoutes: Record<Intent, string> = {
   chat: 'respond',       // 闲聊：直接生成回答
   knowledge: 'retrieve', // 内部知识：先 RAG 检索再回答
-  compute: 'agent',      // 计算：进入 ReAct 工具循环
+  tools: 'agent',        // 需要工具：进入 ReAct 工具循环
 };
 workflow.addConditionalEdges('classify', routeAfterClassify, [
   'retrieve', 'agent', 'respond', 'retry', 'errorHandler',

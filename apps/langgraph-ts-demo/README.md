@@ -103,7 +103,7 @@ SSE 事件协议（与 antdx `XRequest` 消费方式对齐，`event` 统一为 `
 
 ```
 event: message
-data: {"type":"step","threadId":1758630000000,"node":"classify","label":"意图分类","detail":"意图：compute"}
+data: {"type":"step","threadId":1758630000000,"node":"classify","label":"意图分类","detail":"意图：tools"}
 data: {"type":"step","threadId":1758630000000,"node":"agent","label":"Agent 决策","detail":"准备调用工具：calculator"}
 data: {"type":"chunk","threadId":1758630000000,"content":"部分回答"}   # 增量内容，可多次
 data: {"type":"done","threadId":1758630000000}                        # 结束标记

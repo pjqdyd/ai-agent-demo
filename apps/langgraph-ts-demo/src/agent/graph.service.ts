@@ -1,5 +1,13 @@
 import { Provide, Scope, ScopeEnum, Config, Inject } from '@midwayjs/core';
-import { StateGraph, MemorySaver, START, END } from '@langchain/langgraph';
+import {
+  StateGraph,
+  MemorySaver,
+  START,
+  END,
+  Command,
+  interrupt,
+  GraphInterrupt,
+} from '@langchain/langgraph';
 import { ChatOpenAI } from '@langchain/openai';
 import {
   AIMessage,
@@ -10,9 +18,14 @@ import {
 } from '@langchain/core/messages';
 import type { BaseMessage } from '@langchain/core/messages';
 import { z } from 'zod';
-import type { OllamaConfig, GraphStreamData } from '../interface';
+import type {
+  OllamaConfig,
+  GraphStreamData,
+  ClientToolCall,
+} from '../interface';
 import { RagService } from './rag/rag.service';
 import { calculatorTool } from './tools/calculator.tool';
+import { clientTools, CLIENT_TOOL_NAMES } from './tools/client-tools';
 import { GraphState } from './state';
 import type { GraphStateType, Intent } from './state';
 import {
@@ -88,12 +101,12 @@ export class GraphService {
     const classifyModel = baseModel.withStructuredOutput(
       z.object({
         intent: z
-          .enum(['chat', 'knowledge', 'compute'])
+          .enum(['chat', 'knowledge', 'tools'])
           .describe('用户意图分类结果'),
       })
     );
-    // 工具决策模型：绑定 calculator，进入 ReAct 工具调用循环
-    const toolModel = baseModel.bindTools([calculatorTool]);
+    // 工具决策模型：绑定 calculator 与客户端工具，进入 ReAct 工具调用循环
+    const toolModel = baseModel.bindTools([calculatorTool, ...clientTools]);
     // 回答生成模型：chat / knowledge 分支的统一出口
     const respondModel = baseModel;
 
@@ -101,10 +114,12 @@ export class GraphService {
     const classifyNode = async (state: GraphStateType) => {
       try {
         const question = getLastUserContent(state.messages);
-        const { intent } = await classifyModel.invoke([
+        const classified = await classifyModel.invoke([
           new SystemMessage(CLASSIFY_SYSTEM_PROMPT),
           new HumanMessage(question),
         ]);
+        // 小模型偶发不触发结构化输出（返回 undefined / 无 intent），兜底为 chat 走直接回答
+        const intent = classified?.intent ?? 'chat';
         return { intent };
       } catch (error) {
         return buildNodeError('classify', error);
@@ -143,12 +158,33 @@ export class GraphService {
       }
     };
 
-    /** tools 节点：执行 agent 产出的工具调用，结果以 ToolMessage 回填触发下一轮循环 */
+    /**
+     * tools 节点：客户端工具 interrupt 交前端执行，服务端工具本地执行
+     * - 先聚合客户端工具调用并 interrupt（携带调用明细，前端确认后回传结果）
+     * - 服务端工具放在 interrupt 之后执行：恢复重放时 interrupt 直接返回缓存结果，
+     *   calculator 只会执行一次，避免重复计算副作用
+     */
     const toolsNode = async (state: GraphStateType) => {
       try {
         const lastMessage = state.messages[state.messages.length - 1] as AIMessage;
+        const toolCalls = lastMessage.tool_calls ?? [];
+        const clientToolCalls = toolCalls.filter(toolCall =>
+          CLIENT_TOOL_NAMES.has(toolCall.name)
+        );
+        let clientResults: string[] = [];
+        if (clientToolCalls.length) {
+          // 中断点：图在此暂停，状态已存入 checkpointer；
+          // 恢复后重放到此处时直接返回前端回传的结果数组（与调用顺序对齐）
+          clientResults = interrupt({
+            type: 'client_tool_call',
+            toolCalls: clientToolCalls,
+          }) as string[];
+        }
+        const serverToolCalls = toolCalls.filter(
+          toolCall => !CLIENT_TOOL_NAMES.has(toolCall.name)
+        );
         const toolResults: ToolMessage[] = [];
-        for (const toolCall of lastMessage.tool_calls ?? []) {
+        for (const toolCall of serverToolCalls) {
           const observed = await calculatorTool.invoke(toolCall);
           toolResults.push(
             new ToolMessage({
@@ -158,8 +194,23 @@ export class GraphService {
             })
           );
         }
+        clientToolCalls.forEach((toolCall, index) => {
+          toolResults.push(
+            new ToolMessage({
+              content:
+                clientResults[index] ?? '前端未返回该工具的执行结果',
+              tool_call_id: toolCall.id ?? '',
+              name: toolCall.name,
+            })
+          );
+        });
         return { messages: toolResults };
       } catch (error) {
+        // interrupt 依赖 GraphInterrupt 异常实现图暂停，须放行给 LangGraph 运行时，
+        // 否则会被当作节点错误捕获，走进重试 / 告警兜底分支
+        if (error instanceof GraphInterrupt) {
+          throw error;
+        }
         return buildNodeError('tools', error);
       }
     };
@@ -217,7 +268,7 @@ export class GraphService {
       const intentRoutes: Record<Intent, string> = {
         chat: 'respond',
         knowledge: 'retrieve',
-        compute: 'agent',
+        tools: 'agent',
       };
       return intentRoutes[state.intent];
     };
@@ -324,29 +375,69 @@ export class GraphService {
         streamMode: ['updates', 'messages'],
       }
     );
+    yield* this.consumeGraphStream(threadId, stream);
+  }
+
+  /**
+   * 恢复执行：客户端工具结果回传后，从 interrupt 断点续跑（同一 thread_id）
+   * Command({ resume }) 的值与 tools 节点 interrupt 暂停时的调用顺序对齐
+   */
+  async *resumeChatStream(
+    threadId: number,
+    results: string[]
+  ): AsyncGenerator<GraphStreamData, void, undefined> {
+    const graph = this.buildGraph();
+    const stream = await graph.stream(new Command({ resume: results }), {
+      configurable: { thread_id: String(threadId) },
+      streamMode: ['updates', 'messages'],
+    });
+    yield* this.consumeGraphStream(threadId, stream);
+  }
+
+  /**
+   * 消费 Graph 流：chatStream 与 resumeChatStream 共用的事件转换循环
+   * - updates：节点执行完成的 state 增量，转换为 step 事件；
+   *   遇到 __interrupt（客户端工具待执行）转换为 interrupt 事件
+   * - messages：LLM token 流，转换为 chunk 事件
+   */
+  private async *consumeGraphStream(
+    threadId: number,
+    stream: AsyncIterable<unknown>
+  ): AsyncGenerator<GraphStreamData, void, undefined> {
     const thinkStripper = new ThinkTagStripper();
     let lastError: string | null = null;
 
     for await (const entry of stream) {
       const [mode, payload] = entry as [string, unknown];
       if (mode === 'updates') {
-        // updates：节点执行完成的 state 增量，据此下发 step 事件
         for (const [nodeName, delta] of Object.entries(
-          payload as Record<string, Partial<GraphStateType>>
+          payload as Record<string, unknown>
         )) {
-          if (delta?.error) {
-            lastError = delta.error;
+          // interrupt 暂停事件不是节点 step：updates 流以 __interrupt__ 为键
+          // （与 Python 端一致），转换为 interrupt 事件交前端执行
+          if (nodeName === '__interrupt__') {
+            const pendingToolCalls = (
+              delta as Array<{ value?: { toolCalls?: ClientToolCall[] } }>
+            ).flatMap(interruptItem => interruptItem.value?.toolCalls ?? []);
+            if (pendingToolCalls.length) {
+              yield { type: 'interrupt', threadId, toolCalls: pendingToolCalls };
+            }
+            continue;
+          }
+          const nodeDelta = delta as Partial<GraphStateType>;
+          if (nodeDelta?.error) {
+            lastError = nodeDelta.error;
           }
           yield {
             type: 'step',
             threadId,
             node: nodeName,
             label: NODE_LABELS[nodeName] ?? nodeName,
-            detail: summarizeNodeDelta(nodeName, delta),
+            detail: summarizeNodeDelta(nodeName, nodeDelta),
           };
           // errorHandler 的兜底文案不经过 LLM，无 token 流，需手动下发
           if (nodeName === 'errorHandler') {
-            const fallbackContent = delta?.messages?.at(-1)?.content;
+            const fallbackContent = nodeDelta?.messages?.at(-1)?.content;
             if (typeof fallbackContent === 'string' && fallbackContent) {
               yield { type: 'chunk', threadId, content: fallbackContent };
             }

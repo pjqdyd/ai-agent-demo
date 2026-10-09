@@ -6,9 +6,9 @@ import type { Document } from '@langchain/core/documents';
  * 用户意图分类（classify 节点的结构化输出，也是图的分支依据）
  * - chat：日常闲聊，直接回答
  * - knowledge：涉及公司制度、产品知识等内部信息，走 RAG 检索
- * - compute：数学计算类，进入 Agent 工具调用循环
+ * - tools：需要调用工具（数学计算 / 页面环境信息等），进入 Agent 工具调用循环
  */
-export type Intent = 'chat' | 'knowledge' | 'compute';
+export type Intent = 'chat' | 'knowledge' | 'tools';
 
 /**
  * Graph 全局状态定义（StateGraph 的单例 State）
