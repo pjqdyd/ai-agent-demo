@@ -1,10 +1,13 @@
 .navs {
-  ul {
+  // 收敛作用域为直接子级：.navs 同时包裹 <Outlet /> 页面内容，
+  // 后代选择器会误伤消息区 markdown 渲染的 ul/li（display:flex 导致列表横排"不换行"）
+  > ul {
     padding: 0;
     list-style: none;
     display: flex;
   }
-  li {
+
+  > ul > li {
     margin-right: 1em;
   }
 }
