@@ -116,4 +116,7 @@
    - @midwayjs/logger: this.logger 日志打印收集, 配置输出logs目录
    - 日志分析：使用Promtail+Loki+Grafana、EFK/ELK、Prometheus 等
    - 或者云服务商托管日志在线分析
+- 真线持久化
+   - 因为LangGraph需要记录会话状态、节点状态、中断状态，所以需要持久化数据库
+   - 采用PostgreSql、MongoDB 等数据库 (目前是`MemorySaver`)
 
