@@ -51,6 +51,7 @@
  ├─packages             子包目录
     ├─types             ts类型定义
     └─utils             工具类   
+ ├─docs                 文档资源目录
  ├─package.json         package配置
  ├─tsconfig.json        ts配置文件
  ├─turbo.json           构建配置文件
@@ -97,6 +98,10 @@
  # 方式 B：手动发布
  npm publish --access restricted --registry=https://registry.npmjs.org/
  ```
+ #### 页面截图：
+- WebChat 页面截图：
+![chat-sdk](https://raw.githubusercontent.com/pjqdyd/AI-Agent-Demo/main/docs/chat-sdk.png)
+![chat-agent-graph](https://raw.githubusercontent.com/pjqdyd/AI-Agent-Demo/main/docs/chat-agent-graph.png)
 
 #### 总结
  
