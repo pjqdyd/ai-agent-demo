@@ -90,7 +90,7 @@ pnpm --filter @pjqdyd/langgraph-ts-demo start
 生产环境说明：
 
 - `start` 脚本执行 `node bootstrap.js`，其中 `baseDir` 指向 `dist`，容器只扫描编译产物
-- 会话状态生产环境应将 `MemorySaver` 替换为 `PostgresSaver`（跨进程持久化，支持断点续跑与人工审批），替换方式见 [graph.service.ts](file:///d:/DesktopResource/AI/AI-Agent-Demo/apps/langgraph-ts-demo/src/agent/graph.service.ts) 内注释
+- 会话状态生产环境应将 `MemorySaver` 替换为 `PostgresSaver`（跨进程持久化，支持断点续跑与人工审批），替换方式见 [graph.service.ts](../../apps/langgraph-ts-demo/src/agent/graph.service.ts) 内注释
 - 部署机需能访问 Ollama 服务（或通过环境变量/配置指向远端地址）
 
 ## API 接口

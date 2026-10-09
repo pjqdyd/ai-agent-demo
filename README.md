@@ -102,3 +102,14 @@
  
  TS AI Agent 相关技术、ReAct 推理+行动、AI全栈工程化
 
+ 待完善：
+ - 模型评测
+    - 开发时vitest/jest单测/集成测试
+    - 离线评测：批量生成数据集评测（使用人工/评测模型）
+    - LangFuse: 可观测链路追踪+数据集+模型/人工评测判分, 模型调用记录、分析、优化 (开源可私有docker部署)
+    - (可选LangSmith(Sass数据出境外) / Opentelemetry(开源规范与采集SDK) )
+ - 日志监控
+   - @midwayjs/logger: this.logger 日志打印收集, 配置输出logs目录
+   - 日志分析：使用Promtail+Loki+Grafana、EFK/ELK、Prometheus 等
+   - 或者云服务商托管日志在线分析
+
