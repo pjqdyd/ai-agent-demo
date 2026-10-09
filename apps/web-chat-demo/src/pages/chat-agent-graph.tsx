@@ -263,8 +263,9 @@ function renderAssistantMessage(
                     ]}
                 />
             )}
-            {/* 双 '\n' 在markdown中会被解析为新段落，因此需要替换为单个 '\n' */}
-            <XMarkdown content={content.replace(/\n\n/g, '<br/><br/>')} />
+            {/* marked 默认把单个 '\n' 当软换行折叠为空格，开启 breaks 让其渲染为 <br>，
+                同时保留列表、标题等块级语法的正常解析（此前 replace '<br/>' 会破坏列表行首标记） */}
+            <XMarkdown config={{ breaks: true }} content={content} />
         </Flex>
     );
 }
