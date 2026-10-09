@@ -100,9 +100,8 @@
  ```
  #### 页面截图：
 - WebChat 页面截图：
-![chat-sdk](https://raw.githubusercontent.com/pjqdyd/AI-Agent-Demo/main/docs/chat-sdk.png)
-![chat-agent-graph](https://raw.githubusercontent.com/pjqdyd/AI-Agent-Demo/main/docs/chat-agent-graph.png)
-
+![chat-sdk](./docs/images/Snipaste_0.png)
+![chat-agent-graph](./docs/images/Snipaste_1.png)
 #### 总结
  
  TS AI Agent 相关技术、ReAct 推理+行动、AI全栈工程化
