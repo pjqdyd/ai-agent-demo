@@ -202,6 +202,9 @@ class GraphChatProvider extends AbstractChatProvider<
         let pendingToolCalls = originMessage?.pendingToolCalls;
         try {
             const data: GraphStreamData = JSON.parse(chunk.data);
+            // 记录后端返回的线程 ID：interrupt 轮没有 chunk 事件，须在任意事件上更新，
+            // 否则 resume 请求缺 sessionId，会被后端当作新线程处理
+            this.sessionIdRef.current = data.threadId;
             if (data.type === 'step') {
                 // 节点执行完成：追加执行步骤，供 Timeline 展示
                 steps.push({
@@ -220,8 +223,6 @@ class GraphChatProvider extends AbstractChatProvider<
                         .join('、')}`,
                 });
             } else if (data.type === 'chunk') {
-                // 记录后端返回的线程 ID，实现多轮对话
-                this.sessionIdRef.current = data.threadId;
                 content += data.content || '';
             } else if (data.type === 'error') {
                 // 后端处理异常时，将错误信息直接展示在回答中
